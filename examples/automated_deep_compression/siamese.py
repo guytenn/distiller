@@ -44,16 +44,17 @@ class FilterDataset(Dataset):
         n_layers = len(layers)
         data = []
         for layer in layers:
+            layer_features = self.features_dict[layer]
             for i in range(n_examples // n_layers):
-                n_channels = self.features_dict[layer].shape[1]
+                n_channels = layer_features.shape[1]
                 channel_samples_idx = np.random.choice(n_channels, 2, replace=False)
-                data_samples_idx = np.random.choice(n_examples, n_samples, replace=False)
-                data_samples = self.features_dict[data_samples_idx, :, :, :]
+                data_samples_idx = np.random.choice(layer_features.shape[0], n_samples, replace=False)
+                data_samples = layer_features[data_samples_idx, :, :, :]
                 channel_samples = data_samples[:, channel_samples_idx, :, :]
-                x1 = channel_samples[:, 0, :, :].reshape(n_samples, -1)
-                x2 = channel_samples[:, 1, :, :].reshape(n_samples, -1)
+                x1 = channel_samples[:, 0, :, :].reshape(n_samples, -1).numpy()
+                x2 = channel_samples[:, 1, :, :].reshape(n_samples, -1).numpy()
                 label = CKA(x1, x2)
-                data.append((x1, x2, label))
+                data.append((np.matmul(x1, x1.T), np.matmul(x2, x2.T), label))
 
         self.data = data
         self.transform = transform
@@ -190,7 +191,7 @@ class SiameseNetwork(nn.Module):
         self.contra_loss = contra_loss
 
         self.cnn = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=5, padding=2, stride=1),
+            nn.Conv2d(1, 64, kernel_size=5, padding=2, stride=1),
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(64),
             nn.MaxPool2d(2, 2),
@@ -212,7 +213,7 @@ class SiameseNetwork(nn.Module):
             Flatten(),
             nn.Linear(131072, 1024),
             nn.ReLU(inplace=True),
-            nn.BatchNorm2d(1024)
+            # nn.BatchNorm2d(1024)
         )
 
         self.fc = nn.Sequential(
@@ -260,12 +261,12 @@ def cur_time():
     return loc_dt.strftime(fmt).replace(' ', '_')
 
 
-def train(args):
-    default_transform = transforms.Compose([
-        transforms.Scale(128),
-        transforms.ToTensor(),
-    ])
-    train_dataset = LFWDataset('./lfw', './train.txt', default_transform, args.randaug)
+def train(train_dataset, args):
+    # default_transform = transforms.Compose([
+    #     transforms.Scale(128),
+    #     transforms.ToTensor(),
+    # ])
+    # train_dataset = LFWDataset('./lfw', './train.txt', default_transform, args.randaug)
     print("Loaded {} training data.".format(len(train_dataset)))
 
     # # Data Loader (Input Pipeline)
@@ -295,8 +296,8 @@ def train(args):
                 img2_set = img2_set.cuda()
                 labels = labels.cuda()
 
-            img1_set = Variable(img1_set)
-            img2_set = Variable(img2_set)
+            img1_set = Variable(img1_set).unsqueeze(1)
+            img2_set = Variable(img2_set).unsqueeze(1)
             labels = Variable(labels.view(-1, 1).float())
 
             # Forward + Backward + Optimize
@@ -311,10 +312,10 @@ def train(args):
                 loss = criterion(output_labels_prob, labels)
                 loss.backward()
                 optimizer.step()
-        print('Epoch [%d/%d], Iter [%d/%d] Loss: %.4f' % (epoch+1, num_epochs, i+1, len(train_dataset)//BATCH_SIZE, loss.data[0]))
+        print('Epoch [%d/%d], Iter [%d/%d] Loss: %.4f' % (epoch+1, num_epochs, i+1, len(train_dataset)//BATCH_SIZE, loss.data))
 
     # Training accuracy
-    test_against_data(args, 'training', train_loader, siamese_net)
+    # test_against_data(args, 'training', train_loader, siamese_net)
 
     # Save the Trained Model
     model_file_name = "{}_{}".format(cur_time(), args.model_file)
@@ -334,8 +335,8 @@ def test_against_data(args, label, dataset, siamese_net):
             img1_set = img1_set.cuda()
             img2_set = img2_set.cuda()
             labels = labels.cuda()
-        img1_set = Variable(img1_set)
-        img2_set = Variable(img2_set)
+        img1_set = Variable(img1_set).unsqueeze(1)
+        img2_set = Variable(img2_set).unsqueeze(1)
         labels = Variable(labels)
 
         if args.contra_loss:

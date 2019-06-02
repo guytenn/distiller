@@ -19,6 +19,8 @@ import numpy as np
 import torch
 from torch.nn import functional as f
 import distiller
+import torchvision.transforms as transforms
+from examples.automated_deep_compression import siamese
 
 
 msglogger = logging.getLogger()
@@ -97,4 +99,23 @@ def collect_intermediate_featuremap_samples(model, validate_fn, modules_names):
         outputs[layer_name] = concat_tensor_list(Y, dim=0)
 
     msglogger.info("Done.")
-    del intermediate_fms 
+    del intermediate_fms
+
+    default_transform = transforms.Compose([
+        transforms.Scale(128),
+        transforms.ToTensor(),
+    ])
+
+    print('Creating CKA dataset')
+    train_dataset = siamese.FilterDataset(outputs, n_samples=128, n_examples=10000)
+    siamese_args = distiller.utils.MutableNamedTuple(
+        {'action': 'train_test',
+         'epoch': 100,
+         'margin': 1.0,
+         'cuda': True,
+         'randaug': False,
+         'contra_loss': True,
+         'model_file': 'siamese_cka.pkl'})
+
+    print('Training Siamese CKA model')
+    siamese.train(train_dataset, siamese_args)

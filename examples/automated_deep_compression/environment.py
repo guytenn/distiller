@@ -296,6 +296,8 @@ class DistillerWrapperEnvironment(gym.Env):
             collect_intermediate_featuremap_samples(self.net_wrapper.model,
                                                     self.net_wrapper.validate, 
                                                     modules_list)
+
+
         
         #print(self.orig_model.intermediate_fms['output_fms']['module.layer1.1.conv1'])
         #assert False

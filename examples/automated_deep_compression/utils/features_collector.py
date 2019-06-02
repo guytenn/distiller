@@ -101,16 +101,11 @@ def collect_intermediate_featuremap_samples(model, validate_fn, modules_names):
     msglogger.info("Done.")
     del intermediate_fms
 
-    default_transform = transforms.Compose([
-        transforms.Scale(128),
-        transforms.ToTensor(),
-    ])
-
     print('Creating CKA dataset')
-    train_dataset = siamese.FilterDataset(outputs, n_samples=128, n_examples=10000)
+    train_dataset = siamese.FilterDataset(outputs, n_samples=128, n_examples=100)
     siamese_args = distiller.utils.MutableNamedTuple(
         {'action': 'train_test',
-         'epoch': 100,
+         'epoch': 2,
          'margin': 1.0,
          'cuda': True,
          'randaug': False,
@@ -118,4 +113,22 @@ def collect_intermediate_featuremap_samples(model, validate_fn, modules_names):
          'model_file': 'siamese_cka.pkl'})
 
     print('Training Siamese CKA model')
-    siamese.train(train_dataset, siamese_args)
+    siamese_net = siamese.train(train_dataset, siamese_args)
+
+    print('Creating Embedding dict')
+    layers = outputs.keys()
+    n_layers = len(layers)
+    data = []
+    for layer in layers:
+        layer_features = outputs[layer]
+        n_features = layer_features.shape[0]
+        for i in range(n_features):
+            n_channels = layer_features.shape[1]
+            x1 = channel_samples[:, 0, :, :].reshape(n_samples, -1).numpy()
+            x2 = channel_samples[:, 1, :, :].reshape(n_samples, -1).numpy()
+            label = CKA(x1, x2)
+            data.append((np.matmul(x1, x1.T), np.matmul(x2, x2.T), label))
+    siamese.forward_once(x)
+
+
+    return siamese_net, outputs

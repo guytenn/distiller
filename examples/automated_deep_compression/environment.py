@@ -289,13 +289,16 @@ class DistillerWrapperEnvironment(gym.Env):
         self.ft_stats_file = FineTuneStatsFile(os.path.join(msglogger.logdir, 'ft_top1.csv'))
 
         self.orig_model = copy.deepcopy(self.net_wrapper.model)
-        if self.amc_cfg.pruning_method == "fm-reconstruction":
-            if self.amc_cfg.pruning_pattern != "channels":
-                raise ValueError("Feature-map reconstruction is only supported when pruning weights channels")
-            # For feature-map reconstruction we need to collect a representative set of inter-layer feature-maps
-            collect_intermediate_featuremap_samples(self.net_wrapper.model,
-                                                    self.net_wrapper.validate, 
-                                                    modules_list)
+        # if self.amc_cfg.pruning_method == "fm-reconstruction":
+        #     if self.amc_cfg.pruning_pattern != "channels":
+        #         raise ValueError("Feature-map reconstruction is only supported when pruning weights channels")
+        #     # For feature-map reconstruction we need to collect a representative set of inter-layer feature-maps
+        #     self.siamese_net = collect_intermediate_featuremap_samples(self.net_wrapper.model,
+        #                                                                self.net_wrapper.validate,
+        #                                                                modules_list)
+        self.siamese_net = collect_intermediate_featuremap_samples(self.net_wrapper.model,
+                                                                   self.net_wrapper.validate,
+                                                                   modules_list)
 
 
         

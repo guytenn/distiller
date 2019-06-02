@@ -189,6 +189,7 @@ class SiameseNetwork(nn.Module):
         super(SiameseNetwork, self).__init__()
 
         self.contra_loss = contra_loss
+        embedding_dim = 50
 
         self.cnn = nn.Sequential(
             nn.Conv2d(1, 64, kernel_size=5, padding=2, stride=1),
@@ -211,13 +212,13 @@ class SiameseNetwork(nn.Module):
             nn.BatchNorm2d(512),
 
             Flatten(),
-            nn.Linear(131072, 1024),
+            nn.Linear(131072, embedding_dim), #embedding dim = 50
             nn.ReLU(inplace=True),
             # nn.BatchNorm2d(1024)
         )
 
         self.fc = nn.Sequential(
-            nn.Linear(2048, 1),
+            nn.Linear(embedding_dim * 2, 1),
             nn.Sigmoid()
         )
 

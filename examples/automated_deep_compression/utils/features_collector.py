@@ -33,11 +33,9 @@ def cache_featuremaps(module, input, output, intermediate_fms):
     # Make a permanent copy of the input and output feature-maps
     X = input[0]
     n_points_per_layer = 10
-    randx = np.random.randint(0, X.size(2), n_points_per_layer)
-    randy = np.random.randint(0, X.size(3), n_points_per_layer)
-    X = X[:, :, randx, randy].detach().cpu().clone()
+    X = X.detach().cpu().clone()
     #X = X
-    Y = output[:, :, randx, randy].detach().cpu().clone()
+    Y = output.detach().cpu().clone()
 
     # Preprocess the outputs: transpose the batch and channel dimensions, create a flattened view, and transpose.
     # The outputs originally have shape: (batch size, num channels, feature-map width, feature-map height).
@@ -45,9 +43,10 @@ def cache_featuremaps(module, input, output, intermediate_fms):
     # Y = Y.view(Y.size(0), -1)
     # Y = Y.t()
     # Y i storch.Size([128, 16, 32, 32])
-    Y = Y.view(Y.size(0), Y.size(1), -1) # torch.Size([128, 16, 1024])
-    Y = Y.transpose(2, 1)  # torch.Size([128, 1024, 16])
-    Y = Y.contiguous().view(-1, Y.size(2))  # torch.Size([131072, 16])
+
+    # Y = Y.view(Y.size(0), Y.size(1), -1) # torch.Size([128, 16, 1024])
+    # Y = Y.transpose(2, 1)  # torch.Size([128, 1024, 16])
+    # Y = Y.contiguous().view(-1, Y.size(2))  # torch.Size([131072, 16])
 
     intermediate_fms['output_fms'][module.distiller_name].append(Y)
     intermediate_fms['input_fms'][module.distiller_name].append(X)

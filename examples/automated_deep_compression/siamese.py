@@ -13,7 +13,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.autograd import Variable
 from PIL import Image
 import cv2
-from examples.automated_deep_compression.cka import CKA, centering
+from examples.automated_deep_compression.cka import CKA, rbf, centering
 
 # Hyper Parameters
 BATCH_SIZE = 50
@@ -33,8 +33,11 @@ class ContrastiveLoss(torch.nn.Module):
         dist = torch.clamp(mdist, min=0.0)
         loss = y * dist_sq + (1 - y) * torch.pow(dist, 2)
         loss = torch.sum(loss) / 2.0 / input1.size()[0]
+        # print(loss.cpu().detach().numpy())
         return loss
 
+def normalize_input(x, min_val, max_val):
+    return (x - min_val) / (max_val - min_val)
 
 class FilterDataset(Dataset):
     def __init__(self, features_dict, n_samples=128, n_examples=10000, transform=None, random_aug=False):
@@ -45,23 +48,46 @@ class FilterDataset(Dataset):
         data = []
         min_cka = 1
         max_cka = 0
+        self.max_sim = -np.inf
+        self.min_sim = np.inf
         for layer in layers:
             layer_features = self.features_dict[layer]
+            n_channels = layer_features.shape[1]
+            print("{} channels in layer {}".format(n_channels, layer))
             for i in range(n_examples // n_layers):
-                n_channels = layer_features.shape[1]
                 channel_samples_idx = np.random.choice(n_channels, 2, replace=False)
                 data_samples_idx = np.random.choice(layer_features.shape[0], n_samples, replace=False)
                 data_samples = layer_features[data_samples_idx, :, :, :]
                 channel_samples = data_samples[:, channel_samples_idx, :, :]
                 x1 = channel_samples[:, 0, :, :].reshape(n_samples, -1).numpy()
                 x2 = channel_samples[:, 1, :, :].reshape(n_samples, -1).numpy()
-                label = CKA(x1, x2, kernel='linear')
+                label = CKA(x1, x2)
                 min_cka = min(min_cka, label)
                 max_cka = max(max_cka, label)
-                data.append((centering(np.matmul(x1, x1.T)), centering(np.matmul(x2, x2.T)), label))
+
+                x1 = centering(rbf(x1))
+                x2 = centering(rbf(x2))
+                self.max_sim = np.max([self.max_sim, max([np.max(x1[:]), np.max(x2[:])])])
+                self.min_sim = np.min([self.min_sim, min([np.min(x1[:]), np.min(x2[:])])])
+                data.append((x1, x2, label))
+                data.append((x2, x1, label))
+            for c in range(n_channels):
+                data_samples_idx = np.random.choice(layer_features.shape[0], n_samples, replace=False)
+                data_samples = layer_features[data_samples_idx, c, :, :]
+                x = data_samples.reshape(n_samples, -1).numpy()
+                label = CKA(x, x)
+                assert(label == 1)
+                max_cka = 1
+                x = centering(rbf(x))
+                self.max_sim = np.max([self.max_sim, np.max(x[:])])
+                self.min_sim = np.max([self.min_sim, np.min(x[:])])
+                data.append((x, x, 1))
+
 
         for i, example in enumerate(data):
-            data[i] = (example[0], example[1], (example[2] - min_cka) / (max_cka - min_cka))
+            data[i] = (normalize_input(example[0], self.min_sim, self.max_sim),
+                       normalize_input(example[1], self.min_sim, self.max_sim),
+                       (example[2] - min_cka) / (max_cka - min_cka))
 
         self.data = data
         self.transform = transform
@@ -208,32 +234,28 @@ class SiameseNetwork(nn.Module):
         # )
         self.cnn = nn.Sequential(
             nn.Conv2d(1, 64, kernel_size=5, padding=2, stride=1),
-            # nn.LeakyReLU(inplace=True),
-            nn.Tanh(),
+            nn.LeakyReLU(inplace=True),
             nn.BatchNorm2d(64),
             nn.MaxPool2d(2, 2),
 
             nn.Conv2d(64, 128, kernel_size=5, padding=2, stride=1),
-            # nn.LeakyReLU(inplace=True),
-            nn.Tanh(),
+            nn.LeakyReLU(inplace=True),
             nn.BatchNorm2d(128),
             nn.MaxPool2d(2, 2),
 
             nn.Conv2d(128, 256, kernel_size=3, padding=1, stride=1),
-            # nn.LeakyReLU(inplace=True),
-            nn.Tanh(),
+            nn.LeakyReLU(inplace=True),
             nn.BatchNorm2d(256),
             nn.MaxPool2d(2, 2),
 
             nn.Conv2d(256, 512, kernel_size=3, padding=1, stride=1),
-            # nn.LeakyReLU(inplace=True),
-            nn.Tanh(),
+            nn.LeakyReLU(inplace=True),
             nn.BatchNorm2d(512),
 
             Flatten(),
             nn.Linear(131072, embedding_dim), #embedding dim = 50
-            # nn.LeakyReLU(inplace=True),
-            nn.Tanh(),
+            nn.LeakyReLU(inplace=True),
+            # nn.Tanh(),
             # nn.BatchNorm2d(1024)
         )
 
@@ -288,7 +310,7 @@ def train(train_dataset, args):
     #     transforms.ToTensor(),
     # ])
     # train_dataset = LFWDataset('./lfw', './train.txt', default_transform, args.randaug)
-    print("Loaded {} training data.".format(len(train_dataset)))
+    print("Loaded {} training examples.".format(len(train_dataset)))
 
     # # Data Loader (Input Pipeline)
     train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
@@ -305,7 +327,7 @@ def train(train_dataset, args):
     else:
         criterion = nn.BCELoss()
 
-    optimizer = torch.optim.Adam(siamese_net.parameters())
+    optimizer = torch.optim.Adam(siamese_net.parameters(), lr=1e-5)
 
     # Train the Model
     num_epochs = args.epoch

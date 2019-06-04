@@ -22,7 +22,7 @@ import distiller
 import torchvision.transforms as transforms
 from examples.automated_deep_compression import siamese
 import torch
-from examples.automated_deep_compression.cka import centering
+from examples.automated_deep_compression.cka import centering, rbf
 
 
 msglogger = logging.getLogger()
@@ -108,7 +108,7 @@ def collect_intermediate_featuremap_samples(model, validate_fn, modules_names):
     train_dataset = siamese.FilterDataset(outputs, n_samples=n_samples, n_examples=10000)
     siamese_args = distiller.utils.MutableNamedTuple(
         {'action': 'train',
-         'epoch': 5,
+         'epoch': 300,
          'margin': 1.0,
          'cuda': True,
          'randaug': False,
@@ -131,7 +131,7 @@ def collect_intermediate_featuremap_samples(model, validate_fn, modules_names):
             data_samples_idx = np.random.choice(layer_features.shape[0], n_samples, replace=False)
             data_samples = layer_features[data_samples_idx, c, :, :]
             x = data_samples.reshape(n_samples, -1).numpy()
-            x = centering(np.matmul(x, x.T))
+            x = siamese.normalize_input(centering(rbf(x)), train_dataset.min_sim, train_dataset.max_sim)
             x_layer.append(x)
         x_layer = torch.tensor(np.expand_dims(np.stack(x_layer, axis=0), axis=1), device=device)
         embeddings[layer] = siamese_net.forward_once(x_layer.float()).cpu().detach().numpy()

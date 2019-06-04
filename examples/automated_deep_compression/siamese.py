@@ -13,7 +13,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.autograd import Variable
 from PIL import Image
 import cv2
-from examples.automated_deep_compression.cka import CKA
+from examples.automated_deep_compression.cka import CKA, centering
 
 # Hyper Parameters
 BATCH_SIZE = 50
@@ -43,6 +43,8 @@ class FilterDataset(Dataset):
         layers = self.features_dict.keys()
         n_layers = len(layers)
         data = []
+        min_cka = 1
+        max_cka = 0
         for layer in layers:
             layer_features = self.features_dict[layer]
             for i in range(n_examples // n_layers):
@@ -53,8 +55,13 @@ class FilterDataset(Dataset):
                 channel_samples = data_samples[:, channel_samples_idx, :, :]
                 x1 = channel_samples[:, 0, :, :].reshape(n_samples, -1).numpy()
                 x2 = channel_samples[:, 1, :, :].reshape(n_samples, -1).numpy()
-                label = CKA(x1, x2)
-                data.append((np.matmul(x1, x1.T), np.matmul(x2, x2.T), label))
+                label = CKA(x1, x2, kernel='linear')
+                min_cka = min(min_cka, label)
+                max_cka = max(max_cka, label)
+                data.append((centering(np.matmul(x1, x1.T)), centering(np.matmul(x2, x2.T)), label))
+
+        for i, example in enumerate(data):
+            data[i] = (example[0], example[1], (example[2] - min_cka) / (max_cka - min_cka))
 
         self.data = data
         self.transform = transform
@@ -191,29 +198,42 @@ class SiameseNetwork(nn.Module):
         self.contra_loss = contra_loss
         embedding_dim = 50
 
+        # self.cnn = nn.Sequential(
+        #     Flatten(),
+        #     nn.Linear(16384, 4096),
+        #     nn.LeakyReLU(),
+        #     nn.Linear(4096, 1024),
+        #     nn.LeakyReLU(),
+        #     nn.Linear(1024, embedding_dim)
+        # )
         self.cnn = nn.Sequential(
             nn.Conv2d(1, 64, kernel_size=5, padding=2, stride=1),
-            nn.ReLU(inplace=True),
+            # nn.LeakyReLU(inplace=True),
+            nn.Tanh(),
             nn.BatchNorm2d(64),
             nn.MaxPool2d(2, 2),
 
             nn.Conv2d(64, 128, kernel_size=5, padding=2, stride=1),
-            nn.ReLU(inplace=True),
+            # nn.LeakyReLU(inplace=True),
+            nn.Tanh(),
             nn.BatchNorm2d(128),
             nn.MaxPool2d(2, 2),
 
             nn.Conv2d(128, 256, kernel_size=3, padding=1, stride=1),
-            nn.ReLU(inplace=True),
+            # nn.LeakyReLU(inplace=True),
+            nn.Tanh(),
             nn.BatchNorm2d(256),
             nn.MaxPool2d(2, 2),
 
             nn.Conv2d(256, 512, kernel_size=3, padding=1, stride=1),
-            nn.ReLU(inplace=True),
+            # nn.LeakyReLU(inplace=True),
+            nn.Tanh(),
             nn.BatchNorm2d(512),
 
             Flatten(),
             nn.Linear(131072, embedding_dim), #embedding dim = 50
-            nn.ReLU(inplace=True),
+            # nn.LeakyReLU(inplace=True),
+            nn.Tanh(),
             # nn.BatchNorm2d(1024)
         )
 
@@ -297,8 +317,8 @@ def train(train_dataset, args):
                 img2_set = img2_set.cuda()
                 labels = labels.cuda()
 
-            img1_set = Variable(img1_set).unsqueeze(1)
-            img2_set = Variable(img2_set).unsqueeze(1)
+            img1_set = Variable(img1_set).unsqueeze(1).float()
+            img2_set = Variable(img2_set).unsqueeze(1).float()
             labels = Variable(labels.view(-1, 1).float())
 
             # Forward + Backward + Optimize

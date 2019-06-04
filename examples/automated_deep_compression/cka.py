@@ -8,7 +8,7 @@ def centering(K):
     I = np.eye(n)
     Q = I - unit / n
 
-    return np.dot(np.dot(Q, K), Q)
+    return np.dot(np.dot(Q, K), Q).astype("float")
 
 
 def rbf(X, sigma=None):

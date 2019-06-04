@@ -296,7 +296,7 @@ class DistillerWrapperEnvironment(gym.Env):
         #     self.siamese_net = collect_intermediate_featuremap_samples(self.net_wrapper.model,
         #                                                                self.net_wrapper.validate,
         #                                                                modules_list)
-        self.siamese_net = collect_intermediate_featuremap_samples(self.net_wrapper.model,
+        self.embeddings = collect_intermediate_featuremap_samples(self.net_wrapper.model,
                                                                    self.net_wrapper.validate,
                                                                    modules_list)
 

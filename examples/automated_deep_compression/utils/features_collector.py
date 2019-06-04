@@ -21,6 +21,8 @@ from torch.nn import functional as f
 import distiller
 import torchvision.transforms as transforms
 from examples.automated_deep_compression import siamese
+import torch
+from examples.automated_deep_compression.cka import centering
 
 
 msglogger = logging.getLogger()
@@ -102,10 +104,11 @@ def collect_intermediate_featuremap_samples(model, validate_fn, modules_names):
     del intermediate_fms
 
     print('Creating CKA dataset')
-    train_dataset = siamese.FilterDataset(outputs, n_samples=128, n_examples=100)
+    n_samples = 128
+    train_dataset = siamese.FilterDataset(outputs, n_samples=n_samples, n_examples=10000)
     siamese_args = distiller.utils.MutableNamedTuple(
-        {'action': 'train_test',
-         'epoch': 2,
+        {'action': 'train',
+         'epoch': 5,
          'margin': 1.0,
          'cuda': True,
          'randaug': False,
@@ -117,18 +120,25 @@ def collect_intermediate_featuremap_samples(model, validate_fn, modules_names):
 
     print('Creating Embedding dict')
     layers = outputs.keys()
-    n_layers = len(layers)
-    data = []
+    embeddings = dict()
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cpu")
     for layer in layers:
         layer_features = outputs[layer]
-        n_features = layer_features.shape[0]
-        for i in range(n_features):
-            n_channels = layer_features.shape[1]
-            x1 = channel_samples[:, 0, :, :].reshape(n_samples, -1).numpy()
-            x2 = channel_samples[:, 1, :, :].reshape(n_samples, -1).numpy()
-            label = CKA(x1, x2)
-            data.append((np.matmul(x1, x1.T), np.matmul(x2, x2.T), label))
-    siamese.forward_once(x)
+        n_channels = layer_features.shape[1]
+        x_layer = []
+        for c in range(n_channels):
+            data_samples_idx = np.random.choice(layer_features.shape[0], n_samples, replace=False)
+            data_samples = layer_features[data_samples_idx, c, :, :]
+            x = data_samples.reshape(n_samples, -1).numpy()
+            x = centering(np.matmul(x, x.T))
+            x_layer.append(x)
+        x_layer = torch.tensor(np.expand_dims(np.stack(x_layer, axis=0), axis=1), device=device)
+        embeddings[layer] = siamese_net.forward_once(x_layer.float()).cpu().detach().numpy()
 
+    import pickle
+    pickle_out = open("embeddings.pickle", "wb")
+    pickle.dump(embeddings, pickle_out)
+    pickle_out.close()
 
-    return siamese_net, outputs
+    return embeddings

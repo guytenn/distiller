@@ -30,6 +30,7 @@ import logging
 import numpy as np
 import torch
 import csv
+import json
 try:
     import gym
 except ImportError as e:
@@ -296,9 +297,19 @@ class DistillerWrapperEnvironment(gym.Env):
         #     self.siamese_net = collect_intermediate_featuremap_samples(self.net_wrapper.model,
         #                                                                self.net_wrapper.validate,
         #                                                                modules_list)
-        self.embeddings = collect_intermediate_featuremap_samples(self.net_wrapper.model,
-                                                                   self.net_wrapper.validate,
-                                                                   modules_list)
+        load_embeddings = False
+        if load_embeddings:
+            with open('embeddings_cka.json') as f:
+                self.embeddings = json.load(f)
+        else:
+            self.embeddings = collect_intermediate_featuremap_samples(self.net_wrapper.model,
+                                                                      self.net_wrapper.validate,
+                                                                      modules_list)
+
+        max_val = np.max([val[:] for layer in self.embeddings.keys() for val in self.embeddings[layer]])
+        min_val = np.min([val[:] for layer in self.embeddings.keys() for val in self.embeddings[layer]])
+        embedding_dim = len(self.embeddings[list(self.embeddings.keys())[0]][0])
+        self.action_space = spaces.Box(min_val, max_val, shape=(embedding_dim,))
 
 
         

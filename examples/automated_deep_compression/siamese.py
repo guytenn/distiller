@@ -29,9 +29,10 @@ class ContrastiveLoss(torch.nn.Module):
         diff = input1 - input2
         dist_sq = torch.sum(torch.pow(diff, 2), 1)
         dist = torch.sqrt(dist_sq)
-        mdist = self.margin - dist
-        dist = torch.clamp(mdist, min=0.0)
-        loss = y * dist_sq + (1 - y) * torch.pow(dist, 2)
+        # mdist = self.margin - dist
+        # dist = torch.clamp(mdist, min=0.0)
+        # loss = y * dist_sq + (1 - y) * torch.pow(dist, 2)
+        loss = y * dist - (1-y)*dist
         loss = torch.sum(loss) / 2.0 / input1.size()[0]
         # print(loss.cpu().detach().numpy())
         return loss
@@ -71,17 +72,23 @@ class FilterDataset(Dataset):
                 self.min_sim = np.min([self.min_sim, min([np.min(x1[:]), np.min(x2[:])])])
                 data.append((x1, x2, label))
                 data.append((x2, x1, label))
-            for c in range(n_channels):
-                data_samples_idx = np.random.choice(layer_features.shape[0], n_samples, replace=False)
-                data_samples = layer_features[data_samples_idx, c, :, :]
-                x = data_samples.reshape(n_samples, -1).numpy()
-                label = CKA(x, x)
-                assert(label == 1)
+
+                # add same class as well
+                data.append((x1, x1, 1))
+                # data.append((x2, x2, 1))
                 max_cka = 1
-                x = centering(rbf(x))
-                self.max_sim = np.max([self.max_sim, np.max(x[:])])
-                self.min_sim = np.max([self.min_sim, np.min(x[:])])
-                data.append((x, x, 1))
+
+            # for c in range(n_channels):
+            #     data_samples_idx = np.random.choice(layer_features.shape[0], n_samples, replace=False)
+            #     data_samples = layer_features[data_samples_idx, c, :, :]
+            #     x = data_samples.reshape(n_samples, -1).numpy()
+            #     label = CKA(x, x)
+            #     assert(label == 1)
+            #     max_cka = 1
+            #     x = centering(rbf(x))
+            #     self.max_sim = np.max([self.max_sim, np.max(x[:])])
+            #     self.min_sim = np.max([self.min_sim, np.min(x[:])])
+            #     data.append((x, x, 1))
 
 
         for i, example in enumerate(data):
@@ -222,7 +229,7 @@ class SiameseNetwork(nn.Module):
         super(SiameseNetwork, self).__init__()
 
         self.contra_loss = contra_loss
-        embedding_dim = 50
+        embedding_dim = 5
 
         # self.cnn = nn.Sequential(
         #     Flatten(),
@@ -327,7 +334,7 @@ def train(train_dataset, args):
     else:
         criterion = nn.BCELoss()
 
-    optimizer = torch.optim.Adam(siamese_net.parameters(), lr=1e-5)
+    optimizer = torch.optim.Adam(siamese_net.parameters(), lr=1e-6)
 
     # Train the Model
     num_epochs = args.epoch
@@ -355,7 +362,16 @@ def train(train_dataset, args):
                 loss = criterion(output_labels_prob, labels)
                 loss.backward()
                 optimizer.step()
-        print('Epoch [%d/%d], Iter [%d/%d] Loss: %.4f' % (epoch+1, num_epochs, i+1, len(train_dataset)//BATCH_SIZE, loss.data))
+
+            total_norm = 0
+            for p in siamese_net.parameters():
+                try:
+                    param_norm = p.grad.data.norm(2)
+                except:
+                    continue
+                total_norm += param_norm.item() ** 2
+            total_norm = total_norm ** (1. / 2)
+        print('Epoch [%d/%d], Iter [%d/%d] Loss: %.4f, Grad Norm: %.5f' % (epoch+1, num_epochs, i+1, len(train_dataset)//BATCH_SIZE, loss.data, total_norm))
 
     # Training accuracy
     # test_against_data(args, 'training', train_loader, siamese_net)
